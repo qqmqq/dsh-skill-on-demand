@@ -1,0 +1,51 @@
+{
+  "name": "dsh-skill-on-demand",
+  "version": "1.0.0",
+  "description": "Keeps the session skill catalog out of every request: skills are listed on demand, the ones a task needs are recorded once, and only a picked skill is loaded by name.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "skill",
+    "skills",
+    "context",
+    "tokens"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qqmqq/dsh-skill-on-demand.git"
+  },
+  "homepage": "https://github.com/qqmqq/dsh-skill-on-demand#readme",
+  "bugs": {
+    "url": "https://github.com/qqmqq/dsh-skill-on-demand/issues"
+  },
+  "engines": {
+    "dsh": ">=0.2.0-0"
+  },
+  "meta": {
+    "title": "Skill On Demand",
+    "description": "Lists skills on demand and keeps only the ones a task needs, instead of injecting the whole catalog into every request."
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

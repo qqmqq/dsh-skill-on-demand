@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Skill On Demand",
+    "description": "Lists skills on demand and keeps only the ones a task needs, instead of injecting the whole catalog into every request."
+  }
+}
