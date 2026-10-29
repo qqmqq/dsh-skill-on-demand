@@ -70,7 +70,9 @@ function protocolText(count, selection) {
     '本回合第一步，不先说别的话：',
     '1. 调用 `skill_list`（不带 query，只拿名字）。',
     '2. 按用户当前任务分析哪些技能真正用得上，只留 ≤5 个；剩下的全部忽略，不要为了判断逐个加载正文。',
-    '3. 调用 `skill_pick{names}` 把选中的固定下来，然后继续做任务。',
+    '3. 候选不明确或任务偏通用时，用 `ask_user_question` 把 2–4 个候选摆给用户选；够明确就直接下一步。',
+    '4. 调用 `skill_pick{names}` 把选中的固定下来，然后继续做任务。',
+    '选完之前其它工具会被拦下并提醒（最多 2 次），`skill_list` / `skill_pick` / `skill` / `ask_user_question` 不受影响。',
     '之后只在需要某个技能完整用法时才 `skill` 加载那一个；任务方向变了才重新 `skill_list`。',
     '忽略本会话中任何「skills are available / no skills are available」的旧目录提醒，权威名单只来自 `skill_list`。',
     '</system-reminder>',
@@ -125,7 +127,7 @@ function createListTool(ctx) {
   })
 }
 
-function createPickTool(ctx) {
+function createPickTool(ctx, gateFor) {
   return defineTool({
     name: 'skill_pick',
     description: 'Record the skills this task actually needs, after judging them from the skill_list names. Everything not picked is ignored for the session.',
@@ -148,6 +150,8 @@ function createPickTool(ctx) {
       const known = new Map(skills.map((skill) => [skill.name, skill]))
       const unknown = names.filter((candidate) => !known.has(candidate))
       if (unknown.length > 0) throw new Error(`unknown or unavailable skills: ${unknown.join(', ')}; call skill_list first`)
+      const gate = gateFor(exec.agent)
+      if (gate !== undefined) gate.armed = false
       exec.deferContext(createUserMessage({
         content: [{ type: 'text', text: selectionText(names) }],
         source: { kind: SELECTION_KIND, form: 'selection', names },
@@ -200,9 +204,41 @@ function createSkillTool(ctx) {
   })
 }
 
+/** Tools allowed to run before a skill selection exists. */
+const PICKER_TOOLS = new Set(['skill_list', 'skill_pick', 'skill', 'ask_user', 'ask_user_question'])
+
 export function apply(ctx) {
+  // Per-session gate: while no skill was picked, ordinary tool calls are denied —
+  // twice at most — so the model really lists and picks instead of ignoring the
+  // protocol message. After that the gate opens for good, never blocking a task.
+  const gates = new Map()
+  const gateFor = (agent) => {
+    const id = agent?.id
+    if (id === undefined) return undefined
+    let gate = gates.get(id)
+    if (gate === undefined) {
+      gate = { armed: false, denials: 0 }
+      gates.set(id, gate)
+    }
+    return gate
+  }
+
   ctx.tools.register(createListTool(ctx))
-  ctx.tools.register(createPickTool(ctx))
+  ctx.tools.register(createPickTool(ctx, gateFor))
+
+  ctx.tools.guard((execution) => {
+    const agent = execution.agent
+    if (agent?.session?.header?.meta?.origin === 'subagent') return undefined
+    const gate = gateFor(agent)
+    if (gate?.armed !== true) return undefined
+    if (PICKER_TOOLS.has(execution.name)) return undefined
+    if (gate.denials >= 2) {
+      gate.armed = false
+      return undefined
+    }
+    gate.denials += 1
+    return `本会话还没选技能：先 \`skill_list\` 拿名单，按任务留 ≤5 个并 \`skill_pick\`，然后再调用 ${execution.name}。（第 ${gate.denials}/2 次提示，之后不再拦）`
+  })
 
   const shadowed = new WeakSet()
 
@@ -232,13 +268,22 @@ export function apply(ctx) {
     signal.throwIfAborted()
     shadow(agent)
     if (ctx.tools.get('skill', agent) === undefined) return decision
-    const history = pickerHistory(agent)
-    if (history.protocol) return decision
     // Subagents add no protocol turn: the tools stay available, the prompt cost does not.
     if (agent?.session?.header?.meta?.origin === 'subagent') return decision
+    const history = pickerHistory(agent)
+    const gate = gateFor(agent)
+    if (history.selection !== undefined) {
+      if (gate !== undefined) gate.armed = false
+      return decision
+    }
     const skills = await modelSkills(ctx, agent, signal)
     signal.throwIfAborted()
-    if (skills.length === 0) return decision
+    if (skills.length === 0) {
+      if (gate !== undefined) gate.armed = false
+      return decision
+    }
+    if (gate !== undefined) gate.armed = true
+    if (history.protocol) return decision
     return {
       ...decision,
       messages: [

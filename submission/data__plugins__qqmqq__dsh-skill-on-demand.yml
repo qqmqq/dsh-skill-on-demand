@@ -1,7 +1,7 @@
 url: https://github.com/qqmqq/dsh-skill-on-demand
 name: qqmqq/dsh-skill-on-demand
 category: skill
-tarball: https://github.com/qqmqq/dsh-skill-on-demand/releases/download/v1.0.0/dsh-skill-on-demand-1.0.0.tgz
+tarball: https://github.com/qqmqq/dsh-skill-on-demand/releases/download/v1.1.0/dsh-skill-on-demand-1.1.0.tgz
 description:
-  en: "Keeps the session skill catalog out of every request: the shipped catalog is retired, skill_list returns names only (descriptions only on a search), skill_pick records the skills a task needs and the rest are ignored, and skill loads one full skill body by name."
-  zh: "不再把整份技能目录注入每一次请求：去掉官方目录，skill_list 只回技能名（检索时才回描述），skill_pick 按任务记录保留的技能、其余忽略，skill 按名字只加载一个技能正文。"
+  en: "Keeps the session skill catalog out of every request: the shipped catalog is retired, skill_list returns names only (descriptions only on a search), skill_pick records the skills a task needs and the rest are ignored (ordinary tool calls are denied twice until a pick happens, then the gate opens), and skill loads one full skill body by name."
+  zh: "不再把整份技能目录注入每一次请求：去掉官方目录，skill_list 只回技能名（检索时才回描述），skill_pick 按任务记录保留的技能、其余忽略（未选之前普通工具调用会被拦两次，之后放行），skill 按名字只加载一个技能正文。"

@@ -11,6 +11,7 @@ const skills = [
 const globalTools = new Map()
 const scopedTools = new WeakMap()
 const handlers = new Map()
+const guards = []
 let deferred = []
 
 const ctx = {
@@ -30,6 +31,10 @@ const ctx = {
         if (own?.has(name)) return own.get(name)
       }
       return globalTools.get(name)
+    },
+    guard(fn) {
+      guards.push(fn)
+      return () => guards.splice(guards.indexOf(fn), 1)
     },
   },
   agents: { list() { return [] } },
@@ -93,6 +98,12 @@ agent.session.eventAt = (index) => index === 0
 const again = await preStep({ agent, messages: [], turn: 2, step: 1, signal: exec.signal }, async () => enter)
 assert.equal(again.messages.length, 0, 'protocol message is injected once per session')
 
+// Gate: before any pick, an ordinary tool is denied and the picker tools are not.
+const guard = guards[0]
+assert.match(guard({ name: 'bash', agent }), /skill_pick/)
+assert.equal(guard({ name: 'skill_list', agent }), undefined)
+assert.equal(guard({ name: 'bash', agent: subagent }), undefined, 'subagents are never gated')
+
 // skill_list without query: names only, no descriptions.
 const namesOnly = await globalTools.get('skill_list').execute({}, exec)
 assert.match(namesOnly.text, /alpha beta|beta alpha/)
@@ -106,6 +117,7 @@ const picked = await globalTools.get('skill_pick').execute({ names: ['alpha'] },
 assert.match(picked.text, /^- alpha: /)
 assert.equal(deferred.length, 1)
 assert.deepEqual(deferred[0].source.names, ['alpha'])
+assert.equal(guard({ name: 'bash', agent }), undefined, 'gate opens after skill_pick')
 
 await assert.rejects(() => globalTools.get('skill_pick').execute({ names: ['nope'] }, exec), /unknown or unavailable/)
 await assert.rejects(() => ctx.tools.get('skill', agent).execute({ name: 'Bad Name' }, exec), /invalid skill name/)

@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-on-demand",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Keeps the session skill catalog out of every request: skills are listed on demand, the ones a task needs are recorded once, and only a picked skill is loaded by name.",
   "type": "module",
   "main": "index.js",

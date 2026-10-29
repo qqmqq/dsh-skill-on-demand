@@ -15,7 +15,9 @@ This plugin removes that catalog and replaces it with three small tools.
 | Nothing records what the task actually uses | `skill_pick` records the skills kept for this session; everything else is ignored |
 | Every skill body is reachable but unmeasured | `skill` loads exactly one full skill body, by name |
 
-The plugin injects **one** short protocol message per session: list names, judge which skills the task needs (five or fewer), record them with `skill_pick`, then continue. It never repeats, and subagent sessions get none — they keep the tools, they just do not pay for the prompt.
+The plugin injects **one** short protocol message per session: list names, judge which skills the task needs (five or fewer), ask the user when the shortlist is unclear, record them with `skill_pick`, then continue. It never repeats, and subagent sessions get none — they keep the tools, they just do not pay for the prompt.
+
+A prompt alone gets ignored often enough to matter, so the first step is also **gated**: until a skill is picked, an ordinary tool call is denied with a one-line reason that names `skill_list` and `skill_pick`. At most two denials per session, then the gate opens for good. `skill_list`, `skill_pick`, `skill`, `ask_user` and `ask_user_question` always pass, and subagents are never gated.
 
 ## How the catalog is removed
 
@@ -37,7 +39,7 @@ Start a new session and ask anything. The first turn should show `skill_list` �
 
 ## Limitations
 
-- **Soft, not enforced.** If the model ignores the protocol, nothing breaks and nothing is saved — the catalog is still gone, so the saving holds either way.
+- **Bounded, not absolute.** The gate denies an ordinary tool call twice at most. A model that ignores both hints still gets its work done; the catalog stays gone either way, so the token saving holds regardless.
 - **Old sessions keep their history.** A session that already had a catalog published before the plugin was installed still carries that message, plus one "no skills available" correction from the shipped plugin. Start a fresh session for a clean slate.
 - **Selection is per session.** A new session re-runs the judgement; that is intentional, since the right skills depend on the task.
 - **Duplicates.** If a preset already registered `skill` in the agent's own layer, registration fails and the plugin degrades to "picker tools available, catalog unchanged" instead of breaking the session.
