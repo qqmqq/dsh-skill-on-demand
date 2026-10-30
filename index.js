@@ -220,12 +220,16 @@ const WEB_TOOL_FAILURE = /^web_/
  * One-line hint naming the browser capability that is actually available.
  * @returns the hint, or undefined when this session has neither the tools nor the skill.
  */
-function browserHint(ctx, agent) {
+async function browserHint(ctx, agent, signal) {
   const tools = ctx.tools.schemas(agent).map((tool) => tool.name)
   if (tools.some((name) => name.startsWith('browser_'))) {
     return '网页类任务：本会话有 browser_* 工具（browser_session start → browser_page navigate → browser_inspect observe），可用已登录的浏览器，别只用 web_fetch。'
   }
-  return undefined
+  const skills = await modelSkills(ctx, agent, signal)
+  const candidate = skills.find((skill) => skill.name === 'browser-skill')
+    ?? skills.find((skill) => /browser/i.test(skill.name) || /浏览器|browser/i.test(skill.description))
+  if (candidate === undefined) return undefined
+  return `网页类任务：可加载技能 \`${candidate.name}\`（\`skill ${candidate.name}\`）使用已登录浏览器，别只停在 web_fetch。`
 }
 
 function hintMessage(kind, text) {
@@ -315,7 +319,7 @@ export function apply(ctx) {
 
     // The user's own words ask for browser work: name the capability, once.
     if (gate !== undefined && gate.browserHinted !== true && BROWSER_INTENT.test(claimedText(messages))) {
-      const hint = browserHint(ctx, agent)
+      const hint = await browserHint(ctx, agent, signal)
       if (hint !== undefined) {
         gate.browserHinted = true
         extra.push(hintMessage('skill-hint', hint))
@@ -352,7 +356,7 @@ export function apply(ctx) {
     if (result.isError !== true || !WEB_TOOL_FAILURE.test(exec.name)) return decision
     const gate = gateFor(exec.agent)
     if (gate === undefined || gate.webFailed === true) return decision
-    const hint = browserHint(ctx, exec.agent)
+    const hint = await browserHint(ctx, exec.agent, exec.signal)
     if (hint === undefined) return decision
     gate.webFailed = true
     return {

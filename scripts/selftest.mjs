@@ -33,7 +33,7 @@ const ctx = {
       return globalTools.get(name)
     },
     schemas() {
-      return [{ name: 'browser_session' }, { name: 'skill' }]
+      return this._tools ?? [{ name: 'browser_session' }, { name: 'skill' }]
     },
     guard(fn) {
       guards.push(fn)
@@ -103,6 +103,22 @@ const failed = await post({ name: 'web_fetch', agent }, { isError: true }, async
 assert.match(failed.additionalContexts[0].content[0].text, /browser_session/)
 const failedTwice = await post({ name: 'web_fetch', agent }, { isError: true }, async () => ({ kind: 'accept' }))
 assert.equal(failedTwice.additionalContexts, undefined, 'failure hint is injected once')
+
+// Without browser tools, the hint falls back to naming the skill itself.
+ctx.tools._tools = [{ name: 'skill' }]
+const skill = { name: 'browser-skill', description: '自动化用户已登录的 Chromium', invocation: { modelInvocable: true, userInvocable: true }, source: 'user-dsh', provider: 'mock' }
+skills.push(skill)
+const fallbackAgent = {
+  id: 's3',
+  session: { header: { cwd: '/tmp' }, seq: 0, surface: { nodes: [] }, eventAt() { return undefined } },
+  ctx: agent.ctx,
+}
+const fallback = await preStep(
+  { agent: fallbackAgent, messages: [{ source: { kind: 'user' }, content: [{ type: 'text', text: '帮我抓取这个网页' }] }], turn: 1, step: 1, signal: exec.signal },
+  async () => enter,
+)
+assert.match(fallback.messages.find((message) => message.source.kind === 'skill-hint').content[0].text, /browser-skill/)
+ctx.tools._tools = undefined
 
 // Subagents get the tools but no protocol turn.
 const subagent = {
