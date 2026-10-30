@@ -151,7 +151,10 @@ function createPickTool(ctx, gateFor) {
       const unknown = names.filter((candidate) => !known.has(candidate))
       if (unknown.length > 0) throw new Error(`unknown or unavailable skills: ${unknown.join(', ')}; call skill_list first`)
       const gate = gateFor(exec.agent)
-      if (gate !== undefined) gate.armed = false
+      if (gate !== undefined) {
+        gate.armed = false
+        gate.picked = true
+      }
       exec.deferContext(createUserMessage({
         content: [{ type: 'text', text: selectionText(names) }],
         source: { kind: SELECTION_KIND, form: 'selection', names },
@@ -217,7 +220,7 @@ export function apply(ctx) {
     if (id === undefined) return undefined
     let gate = gates.get(id)
     if (gate === undefined) {
-      gate = { armed: false, denials: 0 }
+      gate = { armed: false, denials: 0, picked: false }
       gates.set(id, gate)
     }
     return gate
@@ -272,7 +275,7 @@ export function apply(ctx) {
     if (agent?.session?.header?.meta?.origin === 'subagent') return decision
     const history = pickerHistory(agent)
     const gate = gateFor(agent)
-    if (history.selection !== undefined) {
+    if (history.selection !== undefined || gate?.picked === true) {
       if (gate !== undefined) gate.armed = false
       return decision
     }
