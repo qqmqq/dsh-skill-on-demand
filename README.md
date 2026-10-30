@@ -19,6 +19,11 @@ The plugin injects **one** short protocol message per session: list names, judge
 
 A prompt alone gets ignored often enough to matter, so the first step is also **gated**: until a skill is picked, an ordinary tool call is denied with a one-line reason that names `skill_list` and `skill_pick`. At most two denials per session, then the gate opens for good. `skill_list`, `skill_pick`, `skill`, `ask_user` and `ask_user_question` always pass, and subagents are never gated.
 
+Removing the catalog costs discoverability, so two **deterministic hints** put it back where it matters, still one line each and once per session:
+
+- The user's request reads like browser work (网页 / 浏览器 / 抓取 / 登录 / screenshot / browser …) and this session has `browser_*` tools → one reminder that those tools exist, instead of a silent `web_fetch`.
+- A `web_*` tool call fails → one reminder to fall back to `browser_session` → `browser_page` → `browser_inspect`.
+
 ## How the catalog is removed
 
 `@deepseek-ai/dsh-tool-skill` publishes its catalog only while `ctx.tools.get('skill', agent)` still resolves to its own tool registration. This plugin registers a same-name `skill` tool in each agent's own scope (the nearest scope wins), so that check fails and the catalog stops being published. The replacement tool does the same job — load one skill's instructions by exact name.

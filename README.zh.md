@@ -19,6 +19,11 @@ DeepSeek Harness 会在每个会话里发布一次技能目录，之后每一次
 
 只有提示时模型经常当没看见，所以第一步还带**硬闸**：没选技能之前，普通工具调用会被拦下，并回一句写明 `skill_list` / `skill_pick` 的理由。每个会话最多拦 2 次，之后闸口永久打开。`skill_list`、`skill_pick`、`skill`、`ask_user`、`ask_user_question` 始终放行，子代理从不拦。
 
+拿掉目录的代价是可发现性，所以补两条**确定性提示**，每次会话各一次、各一行：
+
+- 用户这句话像网页类任务（网页／浏览器／抓取／登录／截图／browser…）且本会话有 `browser_*` 工具 → 提醒这些工具存在，别只闷头 `web_fetch`。
+- `web_*` 工具失败 → 提醒改走 `browser_session` → `browser_page` → `browser_inspect`。
+
 ## 目录是怎么被去掉的
 
 `@deepseek-ai/dsh-tool-skill` 只在 `ctx.tools.get('skill', agent)` 仍指向它自己注册的工具时才发布目录。本插件在每个 agent 自己的 scope 里注册同名 `skill` 工具（就近生效），那条检查因此不成立，目录不再发布。替代工具做同样的事——按精确名字加载一个技能的说明。

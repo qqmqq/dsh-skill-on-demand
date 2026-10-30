@@ -74,6 +74,7 @@ function protocolText(count, selection) {
     '4. 调用 `skill_pick{names}` 把选中的固定下来，然后继续做任务。',
     '选完之前其它工具会被拦下并提醒（最多 2 次），`skill_list` / `skill_pick` / `skill` / `ask_user_question` 不受影响。',
     '之后只在需要某个技能完整用法时才 `skill` 加载那一个；任务方向变了才重新 `skill_list`。',
+    '任务涉及网页/浏览器、视频、演示、文档、简历这类专业流程时，先 `skill_list` 带 `query` 搜一次，再决定要不要 `skill` 加载——名字猜不出能力。',
     '忽略本会话中任何「skills are available / no skills are available」的旧目录提醒，权威名单只来自 `skill_list`。',
     '</system-reminder>',
   ].join('\n')
@@ -210,6 +211,42 @@ function createSkillTool(ctx) {
 /** Tools allowed to run before a skill selection exists. */
 const PICKER_TOOLS = new Set(['skill_list', 'skill_pick', 'skill', 'ask_user', 'ask_user_question'])
 
+// Web intent worth a one-line capability hint: with the catalog gone, a model
+// cannot know browser_* tools or browser-skill exist until something names them.
+const BROWSER_INTENT = /网页|网站|浏览器|抓取|爬|登录|登陆|填表|提交表单|截图|点一下|点击|browser|webpage|web page|scrap(e|ing)|login/i
+const WEB_TOOL_FAILURE = /^web_/
+
+/**
+ * One-line hint naming the browser capability that is actually available.
+ * @returns the hint, or undefined when this session has neither the tools nor the skill.
+ */
+function browserHint(ctx, agent) {
+  const tools = ctx.tools.schemas(agent).map((tool) => tool.name)
+  if (tools.some((name) => name.startsWith('browser_'))) {
+    return '网页类任务：本会话有 browser_* 工具（browser_session start → browser_page navigate → browser_inspect observe），可用已登录的浏览器，别只用 web_fetch。'
+  }
+  return undefined
+}
+
+function hintMessage(kind, text) {
+  return createUserMessage({
+    content: [{ type: 'text', text: `<system-reminder>\n${text}\n</system-reminder>` }],
+    source: { kind, form: 'hint' },
+  })
+}
+
+/** Direct user text of one step's claimed messages. */
+function claimedText(messages) {
+  const parts = []
+  for (const message of messages) {
+    if (message.source?.kind !== 'user') continue
+    for (const block of message.content) {
+      if (block.type === 'text') parts.push(block.text)
+    }
+  }
+  return parts.join('\n')
+}
+
 export function apply(ctx) {
   // Per-session gate: while no skill was picked, ordinary tool calls are denied —
   // twice at most — so the model really lists and picks instead of ignoring the
@@ -265,7 +302,7 @@ export function apply(ctx) {
   })
   for (const agent of ctx.agents.list()) shadow(agent)
 
-  ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
+  ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
     const decision = await next()
     if (decision.kind === 'reject') return decision
     signal.throwIfAborted()
@@ -273,29 +310,54 @@ export function apply(ctx) {
     if (ctx.tools.get('skill', agent) === undefined) return decision
     // Subagents add no protocol turn: the tools stay available, the prompt cost does not.
     if (agent?.session?.header?.meta?.origin === 'subagent') return decision
-    const history = pickerHistory(agent)
     const gate = gateFor(agent)
-    if (history.selection !== undefined || gate?.picked === true) {
-      if (gate !== undefined) gate.armed = false
-      return decision
+    const extra = []
+
+    // The user's own words ask for browser work: name the capability, once.
+    if (gate !== undefined && gate.browserHinted !== true && BROWSER_INTENT.test(claimedText(messages))) {
+      const hint = browserHint(ctx, agent)
+      if (hint !== undefined) {
+        gate.browserHinted = true
+        extra.push(hintMessage('skill-hint', hint))
+      }
     }
-    const skills = await modelSkills(ctx, agent, signal)
-    signal.throwIfAborted()
-    if (skills.length === 0) {
-      if (gate !== undefined) gate.armed = false
-      return decision
+
+    const history = pickerHistory(agent)
+    if (history.selection === undefined && gate?.picked !== true) {
+      const skills = await modelSkills(ctx, agent, signal)
+      signal.throwIfAborted()
+      if (skills.length === 0) {
+        if (gate !== undefined) gate.armed = false
+      } else {
+        if (gate !== undefined) gate.armed = true
+        if (!history.protocol) {
+          extra.push(createUserMessage({
+            content: [{ type: 'text', text: protocolText(skills.length, history.selection) }],
+            source: { kind: PROTOCOL_KIND, form: 'protocol' },
+          }))
+        }
+      }
+    } else if (gate !== undefined) {
+      gate.armed = false
     }
-    if (gate !== undefined) gate.armed = true
-    if (history.protocol) return decision
+
+    if (extra.length === 0) return decision
+    return { ...decision, messages: [...decision.messages, ...extra] }
+  })
+
+  // A web tool that failed is where the browser capability matters most: say so once.
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    if (decision.kind !== 'accept') return decision
+    if (result.isError !== true || !WEB_TOOL_FAILURE.test(exec.name)) return decision
+    const gate = gateFor(exec.agent)
+    if (gate === undefined || gate.webFailed === true) return decision
+    const hint = browserHint(ctx, exec.agent)
+    if (hint === undefined) return decision
+    gate.webFailed = true
     return {
       ...decision,
-      messages: [
-        ...decision.messages,
-        createUserMessage({
-          content: [{ type: 'text', text: protocolText(skills.length, history.selection) }],
-          source: { kind: PROTOCOL_KIND, form: 'protocol' },
-        }),
-      ],
+      additionalContexts: [...(decision.additionalContexts ?? []), hintMessage('skill-hint', `${exec.name} 失败。${hint}`)],
     }
   })
 }

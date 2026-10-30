@@ -32,6 +32,9 @@ const ctx = {
       }
       return globalTools.get(name)
     },
+    schemas() {
+      return [{ name: 'browser_session' }, { name: 'skill' }]
+    },
     guard(fn) {
       guards.push(fn)
       return () => guards.splice(guards.indexOf(fn), 1)
@@ -79,6 +82,27 @@ assert.equal(first.messages[0].source.kind, 'skill-picker')
 assert.match(first.messages[0].content[0].text, /skill_list/)
 assert.match(first.messages[0].content[0].text, /按用户当前任务/)
 assert.match(first.messages[0].content[0].text, /skill_pick/)
+
+// A browser-ish ask names the capability once, without dumping the catalog.
+const hinted = await preStep(
+  { agent, messages: [{ source: { kind: 'user' }, content: [{ type: 'text', text: '帮我打开网页把数据抓取下来' }] }], turn: 1, step: 1, signal: exec.signal },
+  async () => enter,
+)
+const hint = hinted.messages.find((message) => message.source.kind === 'skill-hint')
+assert.ok(hint, 'browser intent injects a capability hint')
+assert.match(hint.content[0].text, /browser_session/)
+const hintedAgain = await preStep(
+  { agent, messages: [{ source: { kind: 'user' }, content: [{ type: 'text', text: '再抓一个网页' }] }], turn: 1, step: 1, signal: exec.signal },
+  async () => enter,
+)
+assert.equal(hintedAgain.messages.some((message) => message.source.kind === 'skill-hint'), false, 'hint is injected once')
+
+// A failed web tool points at the browser instead, once.
+const post = handlers.get('tools/post-execute')[0]
+const failed = await post({ name: 'web_fetch', agent }, { isError: true }, async () => ({ kind: 'accept' }))
+assert.match(failed.additionalContexts[0].content[0].text, /browser_session/)
+const failedTwice = await post({ name: 'web_fetch', agent }, { isError: true }, async () => ({ kind: 'accept' }))
+assert.equal(failedTwice.additionalContexts, undefined, 'failure hint is injected once')
 
 // Subagents get the tools but no protocol turn.
 const subagent = {
