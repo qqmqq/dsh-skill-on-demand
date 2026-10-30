@@ -23,6 +23,7 @@ Removing the catalog costs discoverability, so two **deterministic hints** put i
 
 - The user's request reads like browser work (网页 / 浏览器 / 抓取 / 登录 / screenshot / browser …) and this session has `browser_*` tools → one reminder that those tools exist, instead of a silent `web_fetch`.
 - A `web_*` tool call fails → one reminder to fall back to `browser_session` → `browser_page` → `browser_inspect`.
+- Every user message is matched against all skill descriptions locally (CJK bigrams + latin words, common phrases filtered). Up to three matching skills are named with an 80-character description, once each per session — a skill whose name says nothing ("archify", "grill") still surfaces when the task wording matches what it does.
 
 ## How the catalog is removed
 

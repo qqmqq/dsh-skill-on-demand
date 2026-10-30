@@ -251,6 +251,51 @@ function claimedText(messages) {
   return parts.join('\n')
 }
 
+const CJK = /[\u4e00-\u9fff]/
+
+// Bigrams that say nothing about the task; with them, one match would be noise.
+const STOP_GRAMS = new Set([
+  '帮我', '我的', '我们', '你的', '你们', '这个', '那个', '一下', '一个', '什么', '怎么', '可以', '现在',
+  '然后', '就是', '不是', '还是', '已经', '因为', '所以', '但是', '如果', '这样', '那样', '他们', '自己',
+  '没有', '时候', '问题', '今天', '明天', '需要', '应该', '直接', '以及', '或者', '而且', '东西', '一点',
+  '一些', '知道', '觉得', '看下', '给我', '这段', '我想', '我要', '你能', '能不', '不能',
+])
+
+/** CJK bigrams plus latin words: cheap, tokenizer-free, good enough to match phrasings. */
+function terms(text) {
+  const lower = text.toLowerCase()
+  const grams = new Set()
+  for (let index = 0; index + 1 < lower.length; index += 1) {
+    const pair = lower.slice(index, index + 2)
+    if (CJK.test(pair[0]) && CJK.test(pair[1])) grams.add(pair)
+  }
+  const words = new Set(lower.match(/[a-z0-9][a-z0-9+#._-]*/g) ?? [])
+  return { grams, words, text: lower }
+}
+
+/**
+ * Skills whose own description shares enough terms with the request.
+ * Deterministic retrieval over the whole registry, so a skill the model cannot
+ * decode from its name still shows up when the task wording matches its job.
+ */
+function retrieveSkills(text, skills, limit = 3) {
+  const wanted = terms(text)
+  const scored = []
+  for (const skill of skills) {
+    const pool = terms(`${skill.name} ${skill.description}`)
+    let score = 0
+    for (const gram of wanted.grams) {
+      if (!STOP_GRAMS.has(gram) && pool.grams.has(gram)) score += 1
+    }
+    for (const word of wanted.words) {
+      if (word.length >= 3 && pool.text.includes(word)) score += 2
+    }
+    if (score >= 1) scored.push({ skill, score })
+  }
+  scored.sort((left, right) => right.score - left.score)
+  return scored.slice(0, limit).map((entry) => entry.skill)
+}
+
 export function apply(ctx) {
   // Per-session gate: while no skill was picked, ordinary tool calls are denied —
   // twice at most — so the model really lists and picks instead of ignoring the
@@ -261,7 +306,7 @@ export function apply(ctx) {
     if (id === undefined) return undefined
     let gate = gates.get(id)
     if (gate === undefined) {
-      gate = { armed: false, denials: 0, picked: false }
+      gate = { armed: false, denials: 0, picked: false, suggested: new Set() }
       gates.set(id, gate)
     }
     return gate
@@ -316,9 +361,12 @@ export function apply(ctx) {
     if (agent?.session?.header?.meta?.origin === 'subagent') return decision
     const gate = gateFor(agent)
     const extra = []
+    const text = claimedText(messages)
+    const skills = await modelSkills(ctx, agent, signal)
+    signal.throwIfAborted()
 
     // The user's own words ask for browser work: name the capability, once.
-    if (gate !== undefined && gate.browserHinted !== true && BROWSER_INTENT.test(claimedText(messages))) {
+    if (gate !== undefined && gate.browserHinted !== true && BROWSER_INTENT.test(text)) {
       const hint = await browserHint(ctx, agent, signal)
       if (hint !== undefined) {
         gate.browserHinted = true
@@ -326,10 +374,21 @@ export function apply(ctx) {
       }
     }
 
+    // Matching skills named for this task, so a skill the model cannot decode
+    // from its name still gets used. Only skills not already suggested.
+    if (gate !== undefined && skills.length > 0) {
+      const fresh = retrieveSkills(text, skills).filter((skill) => !gate.suggested.has(skill.name))
+      if (fresh.length > 0) {
+        for (const skill of fresh) gate.suggested.add(skill.name)
+        extra.push(hintMessage('skill-suggest', [
+          '本次任务可能有用的技能（需要完整用法时用 `skill` 加载，不必全加载）：',
+          ...fresh.map((skill) => `- ${skill.name}: ${clip(skill.description, 80)}`),
+        ].join('\n')))
+      }
+    }
+
     const history = pickerHistory(agent)
     if (history.selection === undefined && gate?.picked !== true) {
-      const skills = await modelSkills(ctx, agent, signal)
-      signal.throwIfAborted()
       if (skills.length === 0) {
         if (gate !== undefined) gate.armed = false
       } else {

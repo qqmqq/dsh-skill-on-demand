@@ -165,4 +165,19 @@ await assert.rejects(() => ctx.tools.get('skill', agent).execute({ name: 'Bad Na
 const loaded = await ctx.tools.get('skill', agent).execute({ name: 'alpha' }, exec)
 assert.equal(loaded.content, 'BODY')
 
+// Task wording pulls the right skill out of the registry without a catalog.
+skills.push(
+  { name: 'ppt-master', description: 'AI 驱动的演示工作流：生成可编辑 PPTX 演示与幻灯片、还原页面视觉、填充模板。', invocation: { modelInvocable: true, userInvocable: true }, source: 'user-dsh', provider: 'mock' },
+  { name: 'resume-builder', description: '帮助用户一次性生成专业中文简历（HTML + DOCX 双格式），支持 ATS 优化。', invocation: { modelInvocable: true, userInvocable: true }, source: 'user-dsh', provider: 'mock' },
+)
+const mkAgent = (id) => ({ id, session: { header: { cwd: '/tmp' }, seq: 0, surface: { nodes: [] }, eventAt() { return undefined } }, ctx: agent.ctx })
+const suggestOf = async (id, text) => {
+  const res = await preStep({ agent: mkAgent(id), messages: [{ source: { kind: 'user' }, content: [{ type: 'text', text }] }], turn: 1, step: 1, signal: exec.signal }, async () => enter)
+  return res.messages.filter((message) => message.source.kind === 'skill-suggest').map((message) => message.content[0].text).join(String.fromCharCode(10))
+}
+assert.match(await suggestOf('s-ppt', '帮我做个PPT，十页左右'), /ppt-master/)
+assert.match(await suggestOf('s-cv', '帮我写份简历投产品经理'), /resume-builder/)
+assert.equal(await suggestOf('s-weather', '今天天气怎么样'), '')
+assert.equal(await suggestOf('s-ppt', '再来一版封面'), '', 'an already suggested skill is not repeated')
+
 console.log('SELFTEST_OK')
