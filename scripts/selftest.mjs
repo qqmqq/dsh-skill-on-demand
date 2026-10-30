@@ -180,4 +180,12 @@ assert.match(await suggestOf('s-cv', '帮我写份简历投产品经理'), /resu
 assert.equal(await suggestOf('s-weather', '今天天气怎么样'), '')
 assert.equal(await suggestOf('s-ppt', '再来一版封面'), '', 'an already suggested skill is not repeated')
 
+// Query search must survive a model's phrasing, not only exact substrings.
+const searched2 = await globalTools.get('skill_list').execute({ query: '简历' }, exec)
+assert.match(searched2.text, /resume-builder/)
+const searched3 = await globalTools.get('skill_list').execute({ query: '简历 resume' }, exec)
+assert.match(searched3.text, /resume-builder/)
+const searched4 = await globalTools.get('skill_list').execute({ query: 'PPT 演示' }, exec)
+assert.match(searched4.text, /ppt-master/)
+
 console.log('SELFTEST_OK')

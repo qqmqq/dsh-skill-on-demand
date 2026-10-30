@@ -116,9 +116,27 @@ function createListTool(ctx) {
         return { text: `${skills.length} skills available (names only; pass \`query\` for descriptions):\n${grouped}` }
       }
       const limit = Number.isInteger(args?.limit) && args.limit > 0 ? Math.min(args.limit, 40) : SEARCH_LIMIT
-      const matches = skills
-        .filter((skill) => skill.name.toLowerCase().includes(query) || skill.description.toLowerCase().includes(query))
-        .slice(0, limit)
+      // Multi-term and partial-word queries both count: a model writes "简历" or
+      // "简历 resume", never the exact stored description.
+      const parts = query.toLowerCase().split(/[\s,，、;；/]+/).filter((part) => part !== '')
+      const wanted = terms(query)
+      const scored = []
+      for (const skill of skills) {
+        const pool = terms(`${skill.name} ${skill.description}`)
+        let score = 0
+        for (const part of parts) {
+          if (part.length >= 2 && pool.text.includes(part)) score += 2
+        }
+        for (const gram of wanted.grams) {
+          if (!STOP_GRAMS.has(gram) && pool.grams.has(gram)) score += 1
+        }
+        for (const word of wanted.words) {
+          if (word.length >= 3 && pool.text.includes(word)) score += 1
+        }
+        if (score > 0) scored.push({ skill, score })
+      }
+      scored.sort((left, right) => right.score - left.score)
+      const matches = scored.slice(0, limit).map((entry) => entry.skill)
       if (matches.length === 0) {
         return { text: `No skill matches "${args.query}".\nAvailable names: ${skills.map((skill) => skill.name).join(' ')}` }
       }
